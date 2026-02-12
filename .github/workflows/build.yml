@@ -4,18 +4,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      
       - name: Install Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Build
+          
+      - name: Install System Dependencies
         run: |
-          pip install pyinstaller
-          # додайте тут pip install інших ваших бібліотек
+          sudo apt-get update
+          sudo apt-get install -y python3-tk libtk8.6 binutils
+          
+      - name: Build with PyInstaller
+        run: |
+          pip install pyinstaller customtkinter pillow
           python3 -m PyInstaller --onefile --noconsole --name="StarExplor" file_explorer.py
+          
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: linux-binary
+          name: StarExplor-Linux
           path: dist/StarExplor
