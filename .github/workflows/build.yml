@@ -1,0 +1,21 @@
+name: Build Linux Binary
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Build
+        run: |
+          pip install pyinstaller
+          # додайте тут pip install інших ваших бібліотек
+          python3 -m PyInstaller --onefile --noconsole --name="StarExplor" file_explorer.py
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-binary
+          path: dist/StarExplor
