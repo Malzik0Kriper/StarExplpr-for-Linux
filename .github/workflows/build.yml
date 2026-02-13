@@ -1,4 +1,4 @@
-name: Build Linux i686 Binary
+name: Build Linux i686 with Icon
 on: [push]
 
 jobs:
@@ -17,11 +17,13 @@ jobs:
             pip3 install --upgrade pip && \
             pip3 install pyinstaller customtkinter pillow && \
             cd /src && \
-            python3 -m PyInstaller --onefile --noconsole --name='StarExplor_i686' file_explorer.py
+            python3 -m PyInstaller --onefile --noconsole \
+              --add-data 'icon.png:.' \
+              --name='StarExplor_i686' file_explorer.py
           "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: StarExplor-Linux-i686
+          name: StarExplor-With-Icon
           path: dist/StarExplor_i686
