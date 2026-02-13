@@ -1,28 +1,23 @@
-name: Build Linux Binary
+name: Build Linux i686 Binary
 on: [push]
+
 jobs:
-  build:
+  build-i686:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          
-      - name: Install System Dependencies
+
+      - name: Build in 32-bit Docker container
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-tk libtk8.6 binutils
-          
-      - name: Build with PyInstaller
-        run: |
-          pip install pyinstaller customtkinter pillow
-          python3 -m PyInstaller --onefile --noconsole --name="StarExplor" file_explorer.py
-          
+          docker run --rm -v ${{ github.workspace }}:/src i386/ubuntu:20.04 /bin/bash -c "
+            apt-get update && \
+            DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-tk binutils libtk8.6 && \
+            pip3 install pyinstaller customtkinter pillow && \
+            python3 -m PyInstaller --onefile --noconsole --name='StarExplor_i686' file_explorer.py
+          "
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: StarExplor-Linux
-          path: dist/StarExplor
+          name: StarExplor-Linux-i686
+          path: dist/StarExplor_i686
