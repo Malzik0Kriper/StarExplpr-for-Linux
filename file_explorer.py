@@ -7,21 +7,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, font
 import os
 import sys
-from PIL import Image, ImageTk
-
-# Функція для визначення правильного шляху до іконки всередині EXE/ELF
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-# У вашому класі вікна або після створення root:
-icon_path = resource_path("icon.png")
-if os.path.exists(icon_path):
-    img = ImageTk.PhotoImage(Image.open(icon_path))
-    root.wm_iconphoto(True, img)
 
 class FileExplorer(tk.Tk):
     def __init__(self):
