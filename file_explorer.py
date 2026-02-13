@@ -1,700 +1,466 @@
 import os
 import shutil
+import datetime
 import subprocess
-import threading
 from pathlib import Path
-from datetime import datetime
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog, font
+import os
+import sys
 from PIL import Image, ImageTk
-import mimetypes
 
-# Налаштування теми
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+# Функція для визначення правильного шляху до іконки всередині EXE/ELF
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
+# У вашому класі вікна або після створення root:
+icon_path = resource_path("icon.png")
+if os.path.exists(icon_path):
+    img = ImageTk.PhotoImage(Image.open(icon_path))
+    root.wm_iconphoto(True, img)
 
-class FileExplorer(ctk.CTk):
+class FileExplorer(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        # Налаштування головного вікна
+        # Налаштування вікна
         self.title("Провідник")
-        self.geometry("1200x700")
-        self.minsize(800, 500)
+        self.geometry("1000x600")
+        self.configure(bg='#F0F0F0')
         
-        # Змінні
-        self.current_path = os.path.expanduser("~")
+        # Поточний шлях
+        self.current_path = str(Path.home())
         self.history = [self.current_path]
         self.history_index = 0
-        self.clipboard = None
-        self.clipboard_operation = None  # 'copy' або 'cut'
-        self.selected_items = []
-        self.view_mode = "details"  # details або icons
         
-        # Створення інтерфейсу
+        # Буфер обміну
+        self.clipboard_items = []
+        self.clipboard_operation = None
+        
+        # Вибрані елементи
+        self.selected_items = []
+        
+        # Налаштування стилів
+        self.setup_styles()
         self.create_widgets()
-        self.refresh_view()
+        self.load_directory()
+        
+    def setup_styles(self):
+        """Налаштувати стилі ttk"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Кольори Windows 10
+        style.configure('TFrame', background='#F0F0F0')
+        style.configure('Nav.TFrame', background='white')
+        style.configure('Toolbar.TButton', 
+                       background='#E1E1E1',
+                       relief='flat',
+                       padding=5)
+        style.map('Toolbar.TButton',
+                 background=[('active', '#0078D7'), ('pressed', '#005A9E')])
         
     def create_widgets(self):
-        """Створює всі віджети інтерфейсу"""
+        # Верхня панель навігації
+        self.nav_frame = tk.Frame(self, height=50, bg='white', relief='flat')
+        self.nav_frame.pack(fill="x", padx=0, pady=0)
+        self.nav_frame.pack_propagate(False)
+        
+        # Кнопки навігації
+        btn_font = font.Font(size=12, weight='bold')
+        
+        self.btn_back = tk.Button(
+            self.nav_frame, text="←", width=3,
+            command=self.go_back, font=btn_font,
+            bg='#E1E1E1', relief='flat', cursor='hand2'
+        )
+        self.btn_back.pack(side="left", padx=5, pady=10)
+        
+        self.btn_forward = tk.Button(
+            self.nav_frame, text="→", width=3,
+            command=self.go_forward, font=btn_font,
+            bg='#E1E1E1', relief='flat', cursor='hand2'
+        )
+        self.btn_forward.pack(side="left", padx=2, pady=10)
+        
+        self.btn_up = tk.Button(
+            self.nav_frame, text="↑", width=3,
+            command=self.go_up, font=btn_font,
+            bg='#E1E1E1', relief='flat', cursor='hand2'
+        )
+        self.btn_up.pack(side="left", padx=2, pady=10)
+        
+        # Адресна строка
+        self.path_entry = tk.Entry(
+            self.nav_frame, font=('Arial', 10),
+            relief='solid', bd=1
+        )
+        self.path_entry.pack(side="left", fill="x", expand=True, padx=10, pady=10)
+        self.path_entry.bind("<Return>", lambda e: self.navigate_to_path())
+        
+        # Кнопка оновлення
+        self.btn_refresh = tk.Button(
+            self.nav_frame, text="⟳", width=3,
+            command=self.load_directory, font=btn_font,
+            bg='#E1E1E1', relief='flat', cursor='hand2'
+        )
+        self.btn_refresh.pack(side="left", padx=5, pady=10)
         
         # Панель інструментів
-        self.toolbar_frame = ctk.CTkFrame(self, height=50, corner_radius=0)
+        self.toolbar_frame = tk.Frame(self, height=45, bg='#F5F5F5')
         self.toolbar_frame.pack(fill="x", padx=0, pady=0)
         self.toolbar_frame.pack_propagate(False)
         
-        # Кнопки навігації
-        nav_frame = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
-        nav_frame.pack(side="left", padx=10, pady=8)
-        
-        self.back_btn = ctk.CTkButton(
-            nav_frame, text="←", width=40, height=34,
-            command=self.go_back, font=("Arial", 18)
-        )
-        self.back_btn.pack(side="left", padx=2)
-        
-        self.forward_btn = ctk.CTkButton(
-            nav_frame, text="→", width=40, height=34,
-            command=self.go_forward, font=("Arial", 18)
-        )
-        self.forward_btn.pack(side="left", padx=2)
-        
-        self.up_btn = ctk.CTkButton(
-            nav_frame, text="↑", width=40, height=34,
-            command=self.go_up, font=("Arial", 18)
-        )
-        self.up_btn.pack(side="left", padx=2)
-        
-        self.refresh_btn = ctk.CTkButton(
-            nav_frame, text="⟳", width=40, height=34,
-            command=self.refresh_view, font=("Arial", 18)
-        )
-        self.refresh_btn.pack(side="left", padx=2)
-        
-        # Адресна панель
-        address_frame = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
-        address_frame.pack(side="left", fill="x", expand=True, padx=10, pady=8)
-        
-        self.address_entry = ctk.CTkEntry(
-            address_frame, height=34,
-            placeholder_text="Шлях до папки..."
-        )
-        self.address_entry.pack(fill="x", expand=True)
-        self.address_entry.bind("<Return>", lambda e: self.navigate_to_path())
-        
-        # Кнопки вигляду
-        view_frame = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
-        view_frame.pack(side="right", padx=10, pady=8)
-        
-        self.details_btn = ctk.CTkButton(
-            view_frame, text="☰", width=40, height=34,
-            command=lambda: self.change_view("details"),
-            font=("Arial", 16)
-        )
-        self.details_btn.pack(side="left", padx=2)
-        
-        self.icons_btn = ctk.CTkButton(
-            view_frame, text="⊞", width=40, height=34,
-            command=lambda: self.change_view("icons"),
-            font=("Arial", 16)
-        )
-        self.icons_btn.pack(side="left", padx=2)
-        
-        # Головний контейнер
-        main_container = ctk.CTkFrame(self, corner_radius=0)
-        main_container.pack(fill="both", expand=True)
-        
-        # Бічна панель з швидким доступом
-        self.sidebar = ctk.CTkFrame(main_container, width=200, corner_radius=0)
-        self.sidebar.pack(side="left", fill="y", padx=0, pady=0)
-        self.sidebar.pack_propagate(False)
-        
-        sidebar_title = ctk.CTkLabel(
-            self.sidebar, text="Швидкий доступ",
-            font=("Arial", 14, "bold")
-        )
-        sidebar_title.pack(pady=(10, 5), padx=10, anchor="w")
-        
-        # Швидкі посилання
-        quick_links = [
-            ("🏠 Домівка", os.path.expanduser("~")),
-            ("📄 Документи", os.path.join(os.path.expanduser("~"), "Documents")),
-            ("📥 Завантаження", os.path.join(os.path.expanduser("~"), "Downloads")),
-            ("🖼️ Зображення", os.path.join(os.path.expanduser("~"), "Pictures")),
-            ("🎵 Музика", os.path.join(os.path.expanduser("~"), "Music")),
-            ("🎬 Відео", os.path.join(os.path.expanduser("~"), "Videos")),
-            ("💾 Робочий стіл", os.path.join(os.path.expanduser("~"), "Desktop")),
-        ]
-        
-        for name, path in quick_links:
-            if os.path.exists(path):
-                btn = ctk.CTkButton(
-                    self.sidebar, text=name, anchor="w",
-                    height=32, fg_color="transparent",
-                    hover_color=("gray85", "gray25"),
-                    command=lambda p=path: self.navigate_to(p)
-                )
-                btn.pack(fill="x", padx=5, pady=2)
-        
-        # Область перегляду файлів
-        self.content_frame = ctk.CTkFrame(main_container, corner_radius=0)
-        self.content_frame.pack(side="left", fill="both", expand=True)
-        
-        # Створюємо scrollable frame для вмісту
-        self.scrollable_frame = ctk.CTkScrollableFrame(
-            self.content_frame,
-            corner_radius=0
-        )
-        self.scrollable_frame.pack(fill="both", expand=True)
-        
-        # Статус бар
-        self.status_bar = ctk.CTkFrame(self, height=30, corner_radius=0)
-        self.status_bar.pack(fill="x", side="bottom")
-        self.status_bar.pack_propagate(False)
-        
-        self.status_label = ctk.CTkLabel(
-            self.status_bar, text="Готово",
-            anchor="w", font=("Arial", 11)
-        )
-        self.status_label.pack(side="left", padx=10)
-        
-        # Контекстне меню
-        self.create_context_menu()
-        
-        # Прив'язка клавіш
-        self.bind_shortcuts()
-        
-    def create_context_menu(self):
-        """Створює контекстне меню"""
-        # Для простоти використовуємо базові діалоги
-        # В майбутньому можна додати власне меню
-        pass
-    
-    def bind_shortcuts(self):
-        """Прив'язує клавіатурні скорочення"""
-        self.bind("<Control-c>", lambda e: self.copy_items())
-        self.bind("<Control-x>", lambda e: self.cut_items())
-        self.bind("<Control-v>", lambda e: self.paste_items())
-        self.bind("<Delete>", lambda e: self.delete_items())
-        self.bind("<F2>", lambda e: self.rename_item())
-        self.bind("<F5>", lambda e: self.refresh_view())
-        self.bind("<Alt-Left>", lambda e: self.go_back())
-        self.bind("<Alt-Right>", lambda e: self.go_forward())
-        self.bind("<Alt-Up>", lambda e: self.go_up())
-        
-    def navigate_to(self, path):
-        """Переходить до вказаного шляху"""
-        if os.path.exists(path) and os.path.isdir(path):
-            self.current_path = os.path.abspath(path)
-            
-            # Оновлюємо історію
-            if self.history_index < len(self.history) - 1:
-                self.history = self.history[:self.history_index + 1]
-            self.history.append(self.current_path)
-            self.history_index = len(self.history) - 1
-            
-            self.refresh_view()
-        else:
-            messagebox.showerror("Помилка", f"Папка не існує: {path}")
-    
-    def navigate_to_path(self):
-        """Переходить до шляху з адресної панелі"""
-        path = self.address_entry.get().strip()
-        if path:
-            self.navigate_to(path)
-    
-    def go_back(self):
-        """Повертається назад в історії"""
-        if self.history_index > 0:
-            self.history_index -= 1
-            self.current_path = self.history[self.history_index]
-            self.refresh_view()
-    
-    def go_forward(self):
-        """Переходить вперед в історії"""
-        if self.history_index < len(self.history) - 1:
-            self.history_index += 1
-            self.current_path = self.history[self.history_index]
-            self.refresh_view()
-    
-    def go_up(self):
-        """Переходить до батьківської папки"""
-        parent = os.path.dirname(self.current_path)
-        if parent != self.current_path:
-            self.navigate_to(parent)
-    
-    def refresh_view(self):
-        """Оновлює відображення вмісту"""
-        # Очищаємо поточний вміст
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
-        
-        self.selected_items = []
-        
-        # Оновлюємо адресну панель
-        self.address_entry.delete(0, "end")
-        self.address_entry.insert(0, self.current_path)
-        
-        try:
-            # Отримуємо список файлів та папок
-            items = []
-            for item in os.listdir(self.current_path):
-                item_path = os.path.join(self.current_path, item)
-                try:
-                    stat = os.stat(item_path)
-                    is_dir = os.path.isdir(item_path)
-                    items.append({
-                        'name': item,
-                        'path': item_path,
-                        'is_dir': is_dir,
-                        'size': stat.st_size if not is_dir else 0,
-                        'modified': stat.st_mtime
-                    })
-                except (PermissionError, OSError):
-                    continue
-            
-            # Сортуємо: спочатку папки, потім файли
-            items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
-            
-            if self.view_mode == "details":
-                self.show_details_view(items)
-            else:
-                self.show_icons_view(items)
-            
-            # Оновлюємо статус
-            file_count = sum(1 for item in items if not item['is_dir'])
-            folder_count = sum(1 for item in items if item['is_dir'])
-            self.status_label.configure(
-                text=f"Елементів: {len(items)} ({folder_count} папок, {file_count} файлів)"
-            )
-            
-        except PermissionError:
-            messagebox.showerror("Помилка", "Немає доступу до цієї папки")
-        except Exception as e:
-            messagebox.showerror("Помилка", f"Помилка читання папки: {str(e)}")
-    
-    def show_details_view(self, items):
-        """Відображає файли у вигляді таблиці"""
-        # Заголовок таблиці
-        header_frame = ctk.CTkFrame(self.scrollable_frame, fg_color=("gray90", "gray20"))
-        header_frame.pack(fill="x", padx=5, pady=5)
-        
-        headers = [
-            ("Ім'я", 0.4),
-            ("Дата зміни", 0.25),
-            ("Тип", 0.15),
-            ("Розмір", 0.2)
-        ]
-        
-        for header, width in headers:
-            label = ctk.CTkLabel(
-                header_frame, text=header,
-                font=("Arial", 11, "bold"),
-                anchor="w"
-            )
-            label.pack(side="left", fill="x", expand=True, 
-                      ipadx=10 if width == 0.4 else 5)
-        
-        # Список файлів
-        for item in items:
-            self.create_detail_item(item)
-    
-    def create_detail_item(self, item):
-        """Створює елемент у детальному вигляді"""
-        item_frame = ctk.CTkFrame(
-            self.scrollable_frame,
-            fg_color="transparent",
-            height=35
-        )
-        item_frame.pack(fill="x", padx=5, pady=1)
-        item_frame.pack_propagate(False)
-        
-        # Ім'я
-        icon = "📁" if item['is_dir'] else self.get_file_icon(item['name'])
-        name_label = ctk.CTkLabel(
-            item_frame,
-            text=f"{icon} {item['name']}",
-            anchor="w",
-            font=("Arial", 11)
-        )
-        name_label.pack(side="left", fill="x", expand=True, padx=(10, 5))
-        
-        # Дата зміни
-        date_str = datetime.fromtimestamp(item['modified']).strftime("%d.%m.%Y %H:%M")
-        date_label = ctk.CTkLabel(
-            item_frame,
-            text=date_str,
-            anchor="w",
-            font=("Arial", 10),
-            width=150
-        )
-        date_label.pack(side="left", padx=5)
-        
-        # Тип
-        if item['is_dir']:
-            type_text = "Папка"
-        else:
-            ext = os.path.splitext(item['name'])[1]
-            type_text = f"{ext.upper()[1:]} файл" if ext else "Файл"
-        
-        type_label = ctk.CTkLabel(
-            item_frame,
-            text=type_text,
-            anchor="w",
-            font=("Arial", 10),
-            width=100
-        )
-        type_label.pack(side="left", padx=5)
-        
-        # Розмір
-        size_text = "" if item['is_dir'] else self.format_size(item['size'])
-        size_label = ctk.CTkLabel(
-            item_frame,
-            text=size_text,
-            anchor="e",
-            font=("Arial", 10),
-            width=120
-        )
-        size_label.pack(side="left", padx=5)
-        
-        # Прив'язка подій
-        for widget in [item_frame, name_label, date_label, type_label, size_label]:
-            widget.bind("<Button-1>", lambda e, i=item: self.on_item_click(i))
-            widget.bind("<Double-Button-1>", lambda e, i=item: self.on_item_double_click(i))
-            widget.bind("<Button-3>", lambda e, i=item: self.on_item_right_click(e, i))
-    
-    def show_icons_view(self, items):
-        """Відображає файли у вигляді значків"""
-        container = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # Сітка значків
-        col = 0
-        row = 0
-        max_cols = 6
-        
-        for item in items:
-            self.create_icon_item(container, item, row, col)
-            col += 1
-            if col >= max_cols:
-                col = 0
-                row += 1
-    
-    def create_icon_item(self, parent, item, row, col):
-        """Створює елемент у вигляді значка"""
-        item_frame = ctk.CTkFrame(
-            parent,
-            fg_color="transparent",
-            width=120,
-            height=100
-        )
-        item_frame.grid(row=row, column=col, padx=10, pady=10)
-        item_frame.grid_propagate(False)
-        
-        # Іконка
-        icon = "📁" if item['is_dir'] else self.get_file_icon(item['name'])
-        icon_label = ctk.CTkLabel(
-            item_frame,
-            text=icon,
-            font=("Arial", 40)
-        )
-        icon_label.pack(pady=(10, 5))
-        
-        # Ім'я файлу
-        display_name = item['name']
-        if len(display_name) > 15:
-            display_name = display_name[:12] + "..."
-        
-        name_label = ctk.CTkLabel(
-            item_frame,
-            text=display_name,
-            font=("Arial", 10),
-            wraplength=110
-        )
-        name_label.pack()
-        
-        # Прив'язка подій
-        for widget in [item_frame, icon_label, name_label]:
-            widget.bind("<Button-1>", lambda e, i=item: self.on_item_click(i))
-            widget.bind("<Double-Button-1>", lambda e, i=item: self.on_item_double_click(i))
-            widget.bind("<Button-3>", lambda e, i=item: self.on_item_right_click(e, i))
-    
-    def get_file_icon(self, filename):
-        """Повертає емоджі іконку для файлу"""
-        ext = os.path.splitext(filename)[1].lower()
-        
-        icons = {
-            '.txt': '📄', '.doc': '📄', '.docx': '📄', '.pdf': '📕',
-            '.xls': '📊', '.xlsx': '📊', '.csv': '📊',
-            '.ppt': '📊', '.pptx': '📊',
-            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️',
-            '.bmp': '🖼️', '.svg': '🖼️',
-            '.mp3': '🎵', '.wav': '🎵', '.flac': '🎵', '.ogg': '🎵',
-            '.mp4': '🎬', '.avi': '🎬', '.mkv': '🎬', '.mov': '🎬',
-            '.zip': '📦', '.rar': '📦', '.7z': '📦', '.tar': '📦', '.gz': '📦',
-            '.py': '🐍', '.js': '📜', '.html': '🌐', '.css': '🎨',
-            '.cpp': '⚙️', '.c': '⚙️', '.h': '⚙️', '.java': '☕',
-            '.sh': '⚡', '.bat': '⚡', '.exe': '⚙️',
-        }
-        
-        return icons.get(ext, '📄')
-    
-    def format_size(self, size):
-        """Форматує розмір файлу"""
-        for unit in ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']:
-            if size < 1024.0:
-                return f"{size:.1f} {unit}"
-            size /= 1024.0
-        return f"{size:.1f} ПБ"
-    
-    def on_item_click(self, item):
-        """Обробляє клік на елементі"""
-        self.selected_items = [item]
-        self.status_label.configure(text=f"Вибрано: {item['name']}")
-    
-    def on_item_double_click(self, item):
-        """Обробляє подвійний клік на елементі"""
-        if item['is_dir']:
-            self.navigate_to(item['path'])
-        else:
-            self.open_file(item['path'])
-    
-    def on_item_right_click(self, event, item):
-        """Обробляє правий клік на елементі"""
-        self.selected_items = [item]
-        self.show_context_menu(event)
-    
-    def show_context_menu(self, event):
-        """Показує контекстне меню"""
-        # Створюємо просте меню з кнопками
-        menu_window = ctk.CTkToplevel(self)
-        menu_window.geometry(f"200x250+{event.x_root}+{event.y_root}")
-        menu_window.overrideredirect(True)
-        menu_window.attributes('-topmost', True)
-        
-        menu_items = [
-            ("Відкрити", self.open_selected),
+        toolbar_buttons = [
+            ("Нова папка", self.create_folder),
+            ("Новий файл", self.create_file),
             ("Копіювати", self.copy_items),
             ("Вирізати", self.cut_items),
             ("Вставити", self.paste_items),
             ("Видалити", self.delete_items),
             ("Перейменувати", self.rename_item),
-            ("Властивості", self.show_properties),
         ]
         
-        for text, command in menu_items:
-            btn = ctk.CTkButton(
-                menu_window,
-                text=text,
-                anchor="w",
-                fg_color="transparent",
-                hover_color=("gray85", "gray25"),
-                command=lambda c=command, w=menu_window: (c(), w.destroy())
+        btn_font_small = font.Font(size=9)
+        for text, command in toolbar_buttons:
+            btn = tk.Button(
+                self.toolbar_frame, text=text,
+                command=command, font=btn_font_small,
+                bg='#E1E1E1', relief='flat',
+                cursor='hand2', padx=10, pady=5
             )
-            btn.pack(fill="x", padx=2, pady=1)
+            btn.pack(side="left", padx=3, pady=7)
         
-        # Закриваємо меню при кліку поза ним
-        def close_menu(e):
-            menu_window.destroy()
+        # Основна область з Treeview
+        self.main_frame = tk.Frame(self, bg='white')
+        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        self.bind("<Button-1>", close_menu, add="+")
+        # Створити Treeview
+        columns = ('size', 'modified', 'type')
+        self.tree = ttk.Treeview(
+            self.main_frame,
+            columns=columns,
+            show='tree headings',
+            selectmode='extended'
+        )
+        
+        # Налаштувати колонки
+        self.tree.heading('#0', text='Назва')
+        self.tree.heading('size', text='Розмір')
+        self.tree.heading('modified', text='Дата змінення')
+        self.tree.heading('type', text='Тип')
+        
+        self.tree.column('#0', width=400)
+        self.tree.column('size', width=100)
+        self.tree.column('modified', width=150)
+        self.tree.column('type', width=100)
+        
+        # Прокрутка
+        scrollbar_y = ttk.Scrollbar(self.main_frame, orient='vertical', command=self.tree.yview)
+        scrollbar_x = ttk.Scrollbar(self.main_frame, orient='horizontal', command=self.tree.xview)
+        self.tree.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        
+        scrollbar_y.pack(side='right', fill='y')
+        scrollbar_x.pack(side='bottom', fill='x')
+        self.tree.pack(fill="both", expand=True)
+        
+        # Прив'язки подій
+        self.tree.bind('<Double-Button-1>', self.on_double_click)
+        self.tree.bind('<Button-3>', self.on_right_click)
+        self.tree.bind('<<TreeviewSelect>>', self.on_select)
+        
+        # Статус бар
+        self.status_bar = tk.Label(
+            self, text="Готово",
+            anchor="w", bg='#F0F0F0',
+            relief='flat', font=('Arial', 9)
+        )
+        self.status_bar.pack(fill="x", padx=10, pady=5)
     
-    def change_view(self, mode):
-        """Змінює режим перегляду"""
-        self.view_mode = mode
-        self.refresh_view()
-    
-    def open_selected(self):
-        """Відкриває вибраний елемент"""
-        if self.selected_items:
-            item = self.selected_items[0]
-            if item['is_dir']:
-                self.navigate_to(item['path'])
-            else:
-                self.open_file(item['path'])
-    
-    def open_file(self, filepath):
-        """Відкриває файл у відповідній програмі"""
+    def load_directory(self):
+        """Завантажити вміст директорії"""
         try:
-            subprocess.Popen(['xdg-open', filepath])
+            # Очистити дерево
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+            
+            # Оновити адресну строку
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, self.current_path)
+            
+            # Отримати список файлів
+            items = []
+            try:
+                with os.scandir(self.current_path) as entries:
+                    for entry in entries:
+                        try:
+                            items.append(entry)
+                        except PermissionError:
+                            continue
+            except PermissionError:
+                messagebox.showerror("Помилка", "Немає доступу до цієї директорії")
+                return
+            
+            # Сортувати: спочатку папки, потім файли
+            items.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+            
+            # Відобразити елементи
+            folder_count = 0
+            file_count = 0
+            
+            for entry in items:
+                try:
+                    stat = entry.stat()
+                    
+                    if entry.is_dir():
+                        icon = "📁"
+                        size = ""
+                        file_type = "Папка"
+                        folder_count += 1
+                    else:
+                        icon = "📄"
+                        size = self.format_size(stat.st_size)
+                        file_type = "Файл"
+                        file_count += 1
+                    
+                    modified = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M")
+                    
+                    # Додати в дерево
+                    self.tree.insert(
+                        '', 'end',
+                        text=f" {icon} {entry.name}",
+                        values=(size, modified, file_type),
+                        tags=(entry.path,)
+                    )
+                except Exception as e:
+                    print(f"Помилка при додаванні {entry.name}: {e}")
+                    continue
+            
+            # Оновити статус
+            self.status_bar.configure(
+                text=f"{file_count} файл(ів), {folder_count} папок"
+            )
+            
         except Exception as e:
-            messagebox.showerror("Помилка", f"Не вдалося відкрити файл: {str(e)}")
+            messagebox.showerror("Помилка", f"Не вдалося завантажити директорію:\n{e}")
+    
+    def format_size(self, size):
+        """Форматувати розмір файлу"""
+        for unit in ['Б', 'КБ', 'МБ', 'ГБ']:
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} ТБ"
+    
+    def on_double_click(self, event):
+        """Обробник подвійного кліку"""
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            tags = self.tree.item(item, 'tags')
+            if tags:
+                path = tags[0]
+                self.open_item(path)
+    
+    def on_right_click(self, event):
+        """Обробник правого кліку"""
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            tags = self.tree.item(item, 'tags')
+            if tags:
+                path = tags[0]
+                messagebox.showinfo("Інфо", f"Файл:\n{os.path.basename(path)}")
+    
+    def on_select(self, event):
+        """Обробник вибору елементів"""
+        self.selected_items = []
+        for item in self.tree.selection():
+            tags = self.tree.item(item, 'tags')
+            if tags:
+                self.selected_items.append(tags[0])
+    
+    def open_item(self, path):
+        """Відкрити файл або папку"""
+        if os.path.isdir(path):
+            self.navigate_to(path)
+        else:
+            try:
+                subprocess.Popen(['xdg-open', path])
+            except:
+                messagebox.showinfo("Інфо", f"Файл: {os.path.basename(path)}")
+    
+    def navigate_to(self, path):
+        """Перейти до директорії"""
+        if os.path.isdir(path):
+            self.current_path = path
+            # Додати до історії
+            self.history = self.history[:self.history_index + 1]
+            self.history.append(path)
+            self.history_index = len(self.history) - 1
+            self.load_directory()
+    
+    def navigate_to_path(self):
+        """Перейти до шляху з адресної строки"""
+        path = self.path_entry.get()
+        if os.path.isdir(path):
+            self.navigate_to(path)
+        else:
+            messagebox.showerror("Помилка", "Невірний шлях")
+    
+    def go_back(self):
+        """Назад в історії"""
+        if self.history_index > 0:
+            self.history_index -= 1
+            self.current_path = self.history[self.history_index]
+            self.load_directory()
+    
+    def go_forward(self):
+        """Вперед в історії"""
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            self.current_path = self.history[self.history_index]
+            self.load_directory()
+    
+    def go_up(self):
+        """Вгору на один рівень"""
+        parent = str(Path(self.current_path).parent)
+        if parent != self.current_path:
+            self.navigate_to(parent)
+    
+    def create_folder(self):
+        """Створити нову папку"""
+        name = simpledialog.askstring("Нова папка", "Введіть назву папки:")
+        if name:
+            try:
+                new_path = os.path.join(self.current_path, name)
+                os.makedirs(new_path, exist_ok=True)
+                self.load_directory()
+                self.status_bar.configure(text=f"Створено папку: {name}")
+            except Exception as e:
+                messagebox.showerror("Помилка", f"Не вдалося створити папку:\n{e}")
+    
+    def create_file(self):
+        """Створити новий файл"""
+        name = simpledialog.askstring("Новий файл", "Введіть назву файлу:")
+        if name:
+            try:
+                new_path = os.path.join(self.current_path, name)
+                Path(new_path).touch()
+                self.load_directory()
+                self.status_bar.configure(text=f"Створено файл: {name}")
+            except Exception as e:
+                messagebox.showerror("Помилка", f"Не вдалося створити файл:\n{e}")
     
     def copy_items(self):
-        """Копіює вибрані елементи"""
-        if self.selected_items:
-            self.clipboard = [item['path'] for item in self.selected_items]
-            self.clipboard_operation = 'copy'
-            self.status_label.configure(
-                text=f"Скопійовано: {len(self.clipboard)} елементів"
-            )
+        """Копіювати вибрані елементи"""
+        if not self.selected_items:
+            messagebox.showinfo("Інфо", "Нічого не вибрано")
+            return
+        
+        self.clipboard_items = self.selected_items.copy()
+        self.clipboard_operation = 'copy'
+        self.status_bar.configure(text=f"Скопійовано {len(self.clipboard_items)} елементів")
     
     def cut_items(self):
-        """Вирізає вибрані елементи"""
-        if self.selected_items:
-            self.clipboard = [item['path'] for item in self.selected_items]
-            self.clipboard_operation = 'cut'
-            self.status_label.configure(
-                text=f"Вирізано: {len(self.clipboard)} елементів"
-            )
+        """Вирізати вибрані елементи"""
+        if not self.selected_items:
+            messagebox.showinfo("Інфо", "Нічого не вибрано")
+            return
+        
+        self.clipboard_items = self.selected_items.copy()
+        self.clipboard_operation = 'cut'
+        self.status_bar.configure(text=f"Вирізано {len(self.clipboard_items)} елементів")
     
     def paste_items(self):
-        """Вставляє елементи з буфера обміну"""
-        if not self.clipboard:
+        """Вставити елементи"""
+        if not self.clipboard_items:
+            messagebox.showinfo("Інфо", "Буфер обміну порожній")
             return
         
-        def paste_thread():
-            try:
-                for source in self.clipboard:
-                    if not os.path.exists(source):
-                        continue
+        try:
+            for item_path in self.clipboard_items:
+                if not os.path.exists(item_path):
+                    continue
                     
-                    dest_name = os.path.basename(source)
-                    dest_path = os.path.join(self.current_path, dest_name)
-                    
-                    # Якщо файл існує, додаємо суфікс
-                    counter = 1
-                    while os.path.exists(dest_path):
-                        name, ext = os.path.splitext(dest_name)
-                        dest_path = os.path.join(
-                            self.current_path,
-                            f"{name} ({counter}){ext}"
-                        )
-                        counter += 1
-                    
-                    if self.clipboard_operation == 'copy':
-                        if os.path.isdir(source):
-                            shutil.copytree(source, dest_path)
-                        else:
-                            shutil.copy2(source, dest_path)
-                    elif self.clipboard_operation == 'cut':
-                        shutil.move(source, dest_path)
+                name = os.path.basename(item_path)
+                dest_path = os.path.join(self.current_path, name)
                 
-                if self.clipboard_operation == 'cut':
-                    self.clipboard = None
-                    self.clipboard_operation = None
+                # Перевірити чи існує
+                if os.path.exists(dest_path):
+                    dest_path = self.get_unique_name(dest_path)
                 
-                self.after(0, self.refresh_view)
-                self.after(0, lambda: self.status_label.configure(text="Вставлено успішно"))
-                
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror(
-                    "Помилка", f"Помилка вставки: {str(e)}"
-                ))
-        
-        threading.Thread(target=paste_thread, daemon=True).start()
+                if self.clipboard_operation == 'copy':
+                    if os.path.isdir(item_path):
+                        shutil.copytree(item_path, dest_path)
+                    else:
+                        shutil.copy2(item_path, dest_path)
+                elif self.clipboard_operation == 'cut':
+                    shutil.move(item_path, dest_path)
+            
+            if self.clipboard_operation == 'cut':
+                self.clipboard_items = []
+            
+            self.load_directory()
+            self.status_bar.configure(text="Вставлено успішно")
+        except Exception as e:
+            messagebox.showerror("Помилка", f"Не вдалося вставити:\n{e}")
     
     def delete_items(self):
-        """Видаляє вибрані елементи"""
+        """Видалити вибрані елементи"""
         if not self.selected_items:
+            messagebox.showinfo("Інфо", "Нічого не вибрано")
             return
         
-        items_text = "\n".join([item['name'] for item in self.selected_items[:5]])
-        if len(self.selected_items) > 5:
-            items_text += f"\n... та ще {len(self.selected_items) - 5} елементів"
-        
-        if messagebox.askyesno(
-            "Видалення",
-            f"Ви впевнені, що хочете видалити:\n\n{items_text}"
-        ):
-            def delete_thread():
-                try:
-                    for item in self.selected_items:
-                        if os.path.isdir(item['path']):
-                            shutil.rmtree(item['path'])
-                        else:
-                            os.remove(item['path'])
-                    
-                    self.after(0, self.refresh_view)
-                    self.after(0, lambda: self.status_label.configure(
-                        text=f"Видалено {len(self.selected_items)} елементів"
-                    ))
-                except Exception as e:
-                    self.after(0, lambda: messagebox.showerror(
-                        "Помилка", f"Помилка видалення: {str(e)}"
-                    ))
-            
-            threading.Thread(target=delete_thread, daemon=True).start()
+        if messagebox.askyesno("Видалення", f"Видалити {len(self.selected_items)} елементів?"):
+            try:
+                for item_path in self.selected_items:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                self.load_directory()
+                self.status_bar.configure(text="Видалено успішно")
+            except Exception as e:
+                messagebox.showerror("Помилка", f"Не вдалося видалити:\n{e}")
     
     def rename_item(self):
-        """Перейменовує вибраний елемент"""
+        """Перейменувати елемент"""
         if not self.selected_items:
+            messagebox.showinfo("Інфо", "Нічого не вибрано")
             return
         
-        item = self.selected_items[0]
+        old_path = self.selected_items[0]
+        old_name = os.path.basename(old_path)
+        new_name = simpledialog.askstring("Перейменувати", 
+                                         f"Нова назва для '{old_name}':",
+                                         initialvalue=old_name)
         
-        dialog = ctk.CTkInputDialog(
-            text=f"Нове ім'я для: {item['name']}",
-            title="Перейменування"
-        )
-        new_name = dialog.get_input()
-        
-        if new_name and new_name != item['name']:
-            new_path = os.path.join(self.current_path, new_name)
+        if new_name and new_name != old_name:
             try:
-                os.rename(item['path'], new_path)
-                self.refresh_view()
+                new_path = os.path.join(os.path.dirname(old_path), new_name)
+                os.rename(old_path, new_path)
+                self.load_directory()
+                self.status_bar.configure(text=f"Перейменовано на: {new_name}")
             except Exception as e:
-                messagebox.showerror("Помилка", f"Помилка перейменування: {str(e)}")
+                messagebox.showerror("Помилка", f"Не вдалося перейменувати:\n{e}")
     
-    def show_properties(self):
-        """Показує властивості вибраного елемента"""
-        if not self.selected_items:
-            return
-        
-        item = self.selected_items[0]
-        stat = os.stat(item['path'])
-        
-        props_window = ctk.CTkToplevel(self)
-        props_window.title(f"Властивості: {item['name']}")
-        props_window.geometry("400x350")
-        
-        frame = ctk.CTkFrame(props_window)
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        properties = [
-            ("Ім'я:", item['name']),
-            ("Тип:", "Папка" if item['is_dir'] else "Файл"),
-            ("Розташування:", os.path.dirname(item['path'])),
-            ("Розмір:", self.format_size(stat.st_size) if not item['is_dir'] else "-"),
-            ("Створено:", datetime.fromtimestamp(stat.st_ctime).strftime("%d.%m.%Y %H:%M")),
-            ("Змінено:", datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M")),
-            ("Доступ:", datetime.fromtimestamp(stat.st_atime).strftime("%d.%m.%Y %H:%M")),
-        ]
-        
-        for label, value in properties:
-            prop_frame = ctk.CTkFrame(frame, fg_color="transparent")
-            prop_frame.pack(fill="x", pady=5)
-            
-            ctk.CTkLabel(
-                prop_frame,
-                text=label,
-                font=("Arial", 11, "bold"),
-                width=120,
-                anchor="w"
-            ).pack(side="left")
-            
-            ctk.CTkLabel(
-                prop_frame,
-                text=value,
-                font=("Arial", 11),
-                anchor="w"
-            ).pack(side="left", fill="x", expand=True)
-        
-        close_btn = ctk.CTkButton(
-            props_window,
-            text="Закрити",
-            command=props_window.destroy
-        )
-        close_btn.pack(pady=10)
-
-
-def main():
-    """Головна функція"""
-    app = FileExplorer()
-    app.mainloop()
+    def get_unique_name(self, path):
+        """Отримати унікальне ім'я для файлу/папки"""
+        base, ext = os.path.splitext(path)
+        counter = 1
+        new_path = f"{base} ({counter}){ext}"
+        while os.path.exists(new_path):
+            counter += 1
+            new_path = f"{base} ({counter}){ext}"
+        return new_path
 
 
 if __name__ == "__main__":
-    main()
+    app = FileExplorer()
+    app.mainloop()
+
