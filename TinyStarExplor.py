@@ -4,31 +4,31 @@ import datetime
 import subprocess
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog, font
+from tkinter import ttk, messagebox, simpledialog
 
-class FileExplorer(tk.Tk):
+class TinyStarExplor(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        # Головне вікно
+        # Парамитри ВІКНА
         self.title("StarExplor")
         self.geometry("450x300")
         
-        # Кольори вікна
-        self.bg_main = "#2b2b2b"
-        self.bg_secondary = "#3c3f41"
-        self.fg_text = "#ffffff"
-        self.accent = "#4e5154"
+        # Кольорои 
+        self.bg_dark = "#202020"
+        self.bg_field = "#2d2d2d"
+        self.fg_white = "#e0e0e0"
+        self.accent = "#3d3d3d"
+        self.highlight = "#4b6eaf"
         
-        self.configure(bg=self.bg_main)
+        self.configure(bg=self.bg_dark)
         
         self.current_path = str(Path.home())
         self.history = [self.current_path]
         self.history_index = 0
-        
+        self.selected_items = []
         self.clipboard_items = []
         self.clipboard_operation = None
-        self.selected_items = []
         
         self.setup_styles()
         self.create_widgets()
@@ -39,73 +39,66 @@ class FileExplorer(tk.Tk):
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Стилізація таблиці (Treeview)
+        # Стилізація таблиці
         style.configure("Treeview", 
-                        background=self.bg_secondary, 
-                        foreground=self.fg_text, 
-                        fieldbackground=self.bg_secondary,
+                        background=self.bg_field, 
+                        foreground=self.fg_white, 
+                        fieldbackground=self.bg_field,
                         borderwidth=0,
                         font=('Arial', 9))
-        style.map("Treeview", background=[('selected', '#4b6eaf')])
+        style.map("Treeview", background=[('selected', self.highlight)])
         
         style.configure("Treeview.Heading", 
-                        background=self.bg_main, 
-                        foreground=self.fg_text, 
+                        background=self.bg_dark, 
+                        foreground=self.fg_white, 
                         relief="flat",
                         font=('Arial', 9, 'bold'))
-        
-        # Стилізація смуги прокрутки
-        style.configure("Vertical.TScrollbar", gripcount=0, background=self.bg_main, troughcolor=self.bg_secondary)
+        style.map("Treeview.Heading", background=[('active', self.accent)])
 
     def create_widgets(self):
         # Панель навігації
-        self.nav_frame = tk.Frame(self, bg=self.bg_main, height=40)
+        self.nav_frame = tk.Frame(self, bg=self.bg_dark, height=40)
         self.nav_frame.pack(fill="x", padx=5, pady=5)
         self.nav_frame.pack_propagate(False)
         
-        btn_opts = {"bg": self.accent, "fg": self.fg_text, "relief": "flat", "activebackground": "#5c5e60", "font": ("Arial", 8)}
+        btn_opts = {"bg": self.accent, "fg": self.fg_white, "relief": "flat", 
+                    "activebackground": self.highlight, "font": ("Arial", 8)}
         
         tk.Button(self.nav_frame, text="Назад", command=self.go_back, **btn_opts).pack(side="left", padx=2)
         tk.Button(self.nav_frame, text="Вперед", command=self.go_forward, **btn_opts).pack(side="left", padx=2)
         tk.Button(self.nav_frame, text="Оновити", command=self.load_directory, **btn_opts).pack(side="left", padx=2)
 
-        self.path_entry = tk.Entry(self.nav_frame, bg=self.bg_secondary, fg=self.fg_text, insertbackground="white", relief="flat", borderwidth=5)
+        self.path_entry = tk.Entry(self.nav_frame, bg=self.bg_field, fg=self.fg_white, 
+                                   insertbackground="white", relief="flat")
         self.path_entry.pack(side="left", fill="x", expand=True, padx=5)
         self.path_entry.bind("<Return>", lambda e: self.navigate_to_path())
         
-        # РобоЧа ОБЛАСТЬ
-        self.main_frame = tk.Frame(self, bg=self.bg_main)
-        self.main_frame.pack(fill="both", expand=True, padx=5, pady=0)
+        # Робоча область
+        self.main_frame = tk.Frame(self, bg=self.bg_dark)
+        self.main_frame.pack(fill="both", expand=True, padx=5)
         
         columns = ('size', 'modified')
-        self.tree = ttk.Treeview(self.main_frame, columns=columns, show='tree headings', selectmode='extended')
+        self.tree = ttk.Treeview(self.main_frame, columns=columns, show='tree headings')
         
-        self.tree.heading('#0', text='Назва')
-        self.tree.heading('size', text='Розмір')
-        self.tree.heading('modified', text='Змінено')
+        self.tree.heading('#0', text='Назва', command=lambda: self.sort_column('#0', False))
+        self.tree.heading('size', text='Розмір', command=lambda: self.sort_column('size', False))
+        self.tree.heading('modified', text='Змінено', command=lambda: self.sort_column('modified', False))
         
         self.tree.column('#0', width=180)
         self.tree.column('size', width=70)
         self.tree.column('modified', width=120)
         
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.pack(fill="both", expand=True)
         
-        # Прокрутка
-        scroller = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scroller.set)
-        scroller.pack(side="right", fill="y")
-        
-        # Прив'язки
         self.tree.bind('<Double-Button-1>', lambda e: self.open_selected())
         self.tree.bind('<Button-3>', self.show_context_menu)
         self.tree.bind('<<TreeviewSelect>>', self.on_select)
         
-        # Статус бар
-        self.status_bar = tk.Label(self, text="Готово", anchor="w", bg=self.bg_main, fg="#888888", font=('Arial', 8))
+        self.status_bar = tk.Label(self, text="", anchor="w", bg=self.bg_dark, fg="#888888", font=('Arial', 8))
         self.status_bar.pack(fill="x", padx=5)
 
     def create_context_menu(self):
-        self.menu = tk.Menu(self, tearoff=0, bg=self.bg_secondary, fg=self.fg_text, activebackground="#4b6eaf")
+        self.menu = tk.Menu(self, tearoff=0, bg=self.bg_field, fg=self.fg_white, activebackground=self.highlight)
         self.menu.add_command(label="Відкрити", command=self.open_selected)
         self.menu.add_separator()
         self.menu.add_command(label="Нова папка", command=self.create_folder)
@@ -130,12 +123,10 @@ class FileExplorer(tk.Tk):
         try:
             for item in self.tree.get_children():
                 self.tree.delete(item)
-            
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, self.current_path)
             
             items = sorted(os.scandir(self.current_path), key=lambda x: (not x.is_dir(), x.name.lower()))
-            
             for entry in items:
                 try:
                     stat = entry.stat()
@@ -143,10 +134,16 @@ class FileExplorer(tk.Tk):
                     modified = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M")
                     self.tree.insert('', 'end', text=entry.name, values=(size, modified), tags=(entry.path,))
                 except: continue
-            
             self.status_bar.configure(text=f"Елементів: {len(items)}")
         except Exception as e:
-            messagebox.showerror("Помилка", f"Доступ заборонено: {e}")
+            messagebox.showerror("Помилка", f"Доступ обмежено: {e}")
+
+    def sort_column(self, col, reverse):
+        l = [(self.tree.set(k, col) if col != '#0' else self.tree.item(k, 'text'), k) for k in self.tree.get_children('')]
+        l.sort(reverse=reverse)
+        for index, (val, k) in enumerate(l):
+            self.tree.move(k, '', index)
+        self.tree.heading(col, command=lambda: self.sort_column(col, not reverse))
 
     def format_size(self, size):
         for unit in ['Б', 'КБ', 'МБ', 'ГБ']:
@@ -174,14 +171,13 @@ class FileExplorer(tk.Tk):
         path = self.selected_items[0]
         stats = os.stat(path)
         
-        # Створення Вкна Властивостей
         prop_win = tk.Toplevel(self)
         prop_win.title("Властивості")
-        prop_win.geometry("300x200")
-        prop_win.configure(bg=self.bg_secondary)
+        prop_win.geometry("320x220")
+        prop_win.configure(bg=self.bg_field)
         prop_win.resizable(False, False)
         
-        container = tk.Frame(prop_win, bg=self.bg_secondary, padx=15, pady=15)
+        container = tk.Frame(prop_win, bg=self.bg_field, padx=15, pady=15)
         container.pack(fill="both", expand=True)
         
         info = [
@@ -193,10 +189,10 @@ class FileExplorer(tk.Tk):
         ]
         
         for label, val in info:
-            f = tk.Frame(container, bg=self.bg_secondary)
+            f = tk.Frame(container, bg=self.bg_field)
             f.pack(fill="x", pady=2)
-            tk.Label(f, text=label, bg=self.bg_secondary, fg="#aaaaaa", font=("Arial", 9, "bold")).pack(side="left")
-            tk.Label(f, text=val, bg=self.bg_secondary, fg=self.fg_text, font=("Arial", 9), wraplength=200, justify="left").pack(side="left", padx=5)
+            tk.Label(f, text=label, bg=self.bg_field, fg="#aaaaaa", font=("Arial", 9, "bold")).pack(side="left")
+            tk.Label(f, text=val, bg=self.bg_field, fg=self.fg_white, font=("Arial", 9), wraplength=220, justify="left").pack(side="left", padx=5)
 
     def navigate_to_path(self):
         path = self.path_entry.get()
@@ -222,64 +218,50 @@ class FileExplorer(tk.Tk):
         self.selected_items = [self.tree.item(i, 'tags')[0] for i in self.tree.selection()]
 
     def create_folder(self):
-        name = simpledialog.askstring("Папка", "Назва папки:")
+        name = simpledialog.askstring("Папка", "Назва:")
         if name:
-            try:
-                os.makedirs(os.path.join(self.current_path, name), exist_ok=True)
-                self.load_directory()
-            except Exception as e: messagebox.showerror("Помилка", str(e))
+            os.makedirs(os.path.join(self.current_path, name), exist_ok=True)
+            self.load_directory()
 
     def create_file(self):
-        name = simpledialog.askstring("Файл", "Назва файлу:")
+        name = simpledialog.askstring("Файл", "Назва:")
         if name:
-            try:
-                Path(os.path.join(self.current_path, name)).touch()
-                self.load_directory()
-            except Exception as e: messagebox.showerror("Помилка", str(e))
+            Path(os.path.join(self.current_path, name)).touch()
+            self.load_directory()
 
     def copy_items(self):
         self.clipboard_items = self.selected_items.copy()
         self.clipboard_operation = 'copy'
-        self.status_bar.configure(text="Скопійовано в буфер")
 
     def cut_items(self):
         self.clipboard_items = self.selected_items.copy()
         self.clipboard_operation = 'cut'
-        self.status_bar.configure(text="Вирізано в буфер")
 
     def paste_items(self):
         if not self.clipboard_items: return
-        try:
-            for item in self.clipboard_items:
-                dest = os.path.join(self.current_path, os.path.basename(item))
-                if self.clipboard_operation == 'copy':
-                    if os.path.isdir(item): shutil.copytree(item, dest, dirs_exist_ok=True)
-                    else: shutil.copy2(item, dest)
-                else:
-                    shutil.move(item, dest)
-            self.load_directory()
-        except Exception as e: messagebox.showerror("Помилка", str(e))
+        for item in self.clipboard_items:
+            dest = os.path.join(self.current_path, os.path.basename(item))
+            if self.clipboard_operation == 'copy':
+                if os.path.isdir(item): shutil.copytree(item, dest, dirs_exist_ok=True)
+                else: shutil.copy2(item, dest)
+            else: shutil.move(item, dest)
+        self.load_directory()
 
     def delete_items(self):
-        if not self.selected_items: return
-        if messagebox.askyesno("Видалення", f"Видалити {len(self.selected_items)} ел.?"):
-            try:
-                for item in self.selected_items:
-                    if os.path.isdir(item): shutil.rmtree(item)
-                    else: os.remove(item)
-                self.load_directory()
-            except Exception as e: messagebox.showerror("Помилка", str(e))
+        if messagebox.askyesno("Видалення", "Видалити вибране?"):
+            for item in self.selected_items:
+                if os.path.isdir(item): shutil.rmtree(item)
+                else: os.remove(item)
+            self.load_directory()
 
     def rename_item(self):
         if not self.selected_items: return
         old = self.selected_items[0]
         new_name = simpledialog.askstring("Назва", "Нова назва:", initialvalue=os.path.basename(old))
         if new_name:
-            try:
-                os.rename(old, os.path.join(os.path.dirname(old), new_name))
-                self.load_directory()
-            except Exception as e: messagebox.showerror("Помилка", str(e))
+            os.rename(old, os.path.join(os.path.dirname(old), new_name))
+            self.load_directory()
 
 if __name__ == "__main__":
-    app = FileExplorer()
+    app = TinyStarExplor()
     app.mainloop()
