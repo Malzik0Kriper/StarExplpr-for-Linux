@@ -1,13 +1,21 @@
-name: Build Linux i686 with Icon
-on: [push]
+name: Збірка Linux i686 для TinyStarExplor
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build-i686:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Build in 32-bit Docker container
+    steps:
+      - name: Отримання вихідного коду
+        uses: actions/checkout@v4
+
+      - name: Збірка у 32-бітному контейнері Docker
         run: |
           docker run --rm -v ${{ github.workspace }}:/src i386/ubuntu:20.04 /bin/bash -c "
             apt-get update && \
@@ -15,15 +23,14 @@ jobs:
               python3 python3-pip python3-tk binutils libtk8.6 \
               python3-dev build-essential libjpeg-dev zlib1g-dev && \
             pip3 install --upgrade pip && \
-            pip3 install pyinstaller customtkinter pillow && \
+            pip3 install pyinstaller && \
             cd /src && \
             python3 -m PyInstaller --onefile --noconsole \
-              --add-data 'icon.png:.' \
-              --name='StarExplor_i686' file_explorer.py
+              --name='TinyStarExplor' TinyStarExplor.py
           "
 
-      - name: Upload Artifact
+      - name: Завантажити готовий файл
         uses: actions/upload-artifact@v4
         with:
-          name: StarExplor-With-Icon
+          name: TinyStarExplor-Linux-i686
           path: dist/TinyStarExplor
