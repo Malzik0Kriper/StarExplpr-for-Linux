@@ -26,4 +26,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: StarExplor-With-Icon
-          path: dist/StarExplor_i686
+          path: dist/TinyStarExplor
